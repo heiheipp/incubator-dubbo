@@ -16,10 +16,10 @@
  */
 package org.apache.dubbo.monitor.dubbo;
 
-import org.apache.dubbo.common.Constants;
 import org.apache.dubbo.common.URL;
 import org.apache.dubbo.common.logger.Logger;
 import org.apache.dubbo.common.logger.LoggerFactory;
+import org.apache.dubbo.common.utils.ExecutorUtil;
 import org.apache.dubbo.common.utils.NamedThreadFactory;
 import org.apache.dubbo.monitor.Monitor;
 import org.apache.dubbo.monitor.MonitorService;
@@ -34,6 +34,8 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+
+import static org.apache.dubbo.common.constants.CommonConstants.DEFAULT_PROTOCOL;
 
 /**
  * DubboMonitor
@@ -84,7 +86,10 @@ public class DubboMonitor implements Monitor {
     }
 
     public void send() {
-        logger.debug("Send statistics to monitor " + getUrl());
+        if (logger.isDebugEnabled()) {
+            logger.debug("Send statistics to monitor " + getUrl());
+        }
+
         String timestamp = String.valueOf(System.currentTimeMillis());
         for (Map.Entry<Statistics, AtomicReference<long[]>> entry : statisticsMap.entrySet()) {
             // get statistics data
@@ -101,7 +106,7 @@ public class DubboMonitor implements Monitor {
             long maxOutput = numbers[7];
             long maxElapsed = numbers[8];
             long maxConcurrent = numbers[9];
-            String protocol = getUrl().getParameter(Constants.DEFAULT_PROTOCOL);
+            String protocol = getUrl().getParameter(DEFAULT_PROTOCOL);
 
             // send statistics data
             URL url = statistics.getUrl()
@@ -116,7 +121,7 @@ public class DubboMonitor implements Monitor {
                             MonitorService.MAX_OUTPUT, String.valueOf(maxOutput),
                             MonitorService.MAX_ELAPSED, String.valueOf(maxElapsed),
                             MonitorService.MAX_CONCURRENT, String.valueOf(maxConcurrent),
-                            Constants.DEFAULT_PROTOCOL, protocol
+                            DEFAULT_PROTOCOL, protocol
                     );
             monitorService.collect(url);
 
@@ -155,11 +160,7 @@ public class DubboMonitor implements Monitor {
         int concurrent = url.getParameter(MonitorService.CONCURRENT, 0);
         // init atomic reference
         Statistics statistics = new Statistics(url);
-        AtomicReference<long[]> reference = statisticsMap.get(statistics);
-        if (reference == null) {
-            statisticsMap.putIfAbsent(statistics, new AtomicReference<long[]>());
-            reference = statisticsMap.get(statistics);
-        }
+        AtomicReference<long[]> reference = statisticsMap.computeIfAbsent(statistics, k -> new AtomicReference<>());
         // use CompareAndSet to sum
         long[] current;
         long[] update = new long[LENGTH];
@@ -209,7 +210,7 @@ public class DubboMonitor implements Monitor {
     @Override
     public void destroy() {
         try {
-            sendFuture.cancel(true);
+            ExecutorUtil.cancelScheduledFuture(sendFuture);
         } catch (Throwable t) {
             logger.error("Unexpected error occur at cancel sender timer, cause: " + t.getMessage(), t);
         }
